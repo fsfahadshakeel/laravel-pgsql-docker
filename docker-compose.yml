@@ -1,0 +1,205 @@
+version: '3.8'
+
+networks:
+  laravel:
+
+services:
+  nginx:
+    build:
+      context: ./docker
+      dockerfile: nginx.dockerfile
+      args:
+        - UID=${UID:-1000}
+        - GID=${GID:-1000}
+        - USER=${USER:-laravel}
+    restart: unless-stopped
+    container_name: ${APP_NAME}-nginx
+    ports:
+      - 8000:8000
+    volumes:
+      - ./src:/var/www/html
+      - .env:/var/www/html/.env
+    depends_on:
+      - php
+      - redis
+      - postgres
+      - pgadmin
+      - laravel-queue
+      - laravel-cron
+    networks:
+      - laravel
+
+  php:
+    build:
+      context: ./docker
+      dockerfile: php.dockerfile
+      args:
+        - UID=${UID:-1000}
+        - GID=${GID:-1000}
+        - USER=${USER:-laravel}
+    container_name: ${APP_NAME}-php
+    ports:
+      - ":9000"
+    volumes:
+      - ./src:/var/www/html
+      - .env:/var/www/html/.env
+    networks:
+      - laravel
+
+  postgres:
+    image: postgres
+    container_name: ${APP_NAME}-postgres
+    restart: unless-stopped
+    tty: true
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      SERVICE_TAGS: dev
+      SERVICE_NAME: postgresql
+    volumes:
+      - ./docker/postgres/data:/var/lib/postgresql/data
+    networks:
+      - laravel
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: ${APP_NAME}-pgAdmin
+    ports:
+      - 5050:80
+    depends_on:
+      - postgres
+    environment:
+      PGADMIN_DEFAULT_EMAIL: fsfahadshakeel@gmail.com
+      PGADMIN_DEFAULT_PASSWORD: password
+    networks:
+      - laravel
+
+  redis:
+    image: redis:alpine
+    container_name: ${APP_NAME}-redis
+    restart: unless-stopped
+    ports:
+      - 6380:6379
+    networks:
+      - laravel
+
+  laravel-cron:
+    build:
+      context: ./docker
+      dockerfile: php.dockerfile
+      args:
+        - UID=${UID:-1000}
+        - GID=${GID:-1000}
+        - USER=${USER:-laravel}
+    container_name: ${APP_NAME}-laravel-cron
+    volumes:
+      - ./src:/var/www/html
+      - .env:/var/www/html/.env
+    depends_on:
+      - postgres
+    working_dir: /var/www/html
+    entrypoint: ['php', '/var/www/html/artisan', 'schedule:work']
+    networks:
+      - laravel
+
+  laravel-queue:
+    build:
+      context: ./docker
+      dockerfile: php.dockerfile
+      args:
+        - UID=${UID:-1000}
+        - GID=${GID:-1000}
+        - USER=${USER:-laravel}
+    container_name: ${APP_NAME}-laravel-queue
+    volumes:
+      - ./src:/var/www/html
+      - .env:/var/www/html/.env
+    depends_on:
+      - postgres
+    working_dir: /var/www/html
+    entrypoint: ['php', '/var/www/html/artisan', 'queue:work']
+    networks:
+      - laravel
+
+  laravel-migrate-seed:
+    build:
+      context: ./docker
+      dockerfile: php.dockerfile
+      args:
+        - UID=${UID:-1000}
+        - GID=${GID:-1000}
+        - USER=${USER:-laravel}
+    container_name: ${APP_NAME}-laravel-migrate-seed
+    volumes:
+      - ./src:/var/www/html
+      - .env:/var/www/html/.env
+    depends_on:
+      - postgres
+    profiles: ["migrate-seed"]
+    working_dir: /var/www/html
+    entrypoint: ["/bin/sh","-c"]
+    command:
+    - |
+      php artisan migrate
+      php artisan db:seed
+    networks:
+      - laravel
+
+  composer:
+    build:
+      context: ./docker
+      dockerfile: composer.dockerfile
+      args:
+        - UID=${UID:-1000}
+        - GID=${GID:-1000}
+        - USER=${USER:-laravel}
+    container_name: ${APP_NAME}-composer
+    volumes:
+      - ./src:/var/www/html
+      - .env:/var/www/html/.env
+    working_dir: /var/www/html
+    depends_on:
+      - php
+    user: ${USER:-laravel} #system user
+    profiles: ["composer"]
+    entrypoint: ['composer', '--ignore-platform-reqs']
+    networks:
+      - laravel
+
+  artisan:
+    build:
+      context: ./docker
+      dockerfile: php.dockerfile
+      args:
+        - UID=${UID:-1000}
+        - GID=${GID:-1000}
+        - USER=${USER:-laravel}
+    container_name: ${APP_NAME}-artisan
+    volumes:
+      - ./src:/var/www/html
+      - .env:/var/www/html/.env
+    depends_on:
+      - postgres
+    working_dir: /var/www/html
+    profiles: ["artisan"]
+    entrypoint: ['php', '/var/www/html/artisan']
+    networks:
+      - laravel
+
+  npm:
+    image: node:latest
+    container_name: ${APP_NAME}-npm
+    volumes:
+      - ./src:/var/www/html
+      - .env:/var/www/html/.env
+    ports:
+      - 3000:3000
+      - 3001:3001
+    working_dir: /var/www/html
+    profiles: ["npm"]
+    entrypoint: ['npm']
+    networks:
+      - laravel
